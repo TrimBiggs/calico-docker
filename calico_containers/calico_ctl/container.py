@@ -4,6 +4,7 @@ Usage:
   calicoctl container <CONTAINER> endpoint show
   calicoctl container <CONTAINER> profile (append|remove|set) [<PROFILES>...]
   calicoctl container add <CONTAINER> <IP> [--interface=<INTERFACE>]
+  calicoctl container veth <CONTAINER> <VETH>
   calicoctl container remove <CONTAINER>
 
 Description:
@@ -21,7 +22,7 @@ import uuid
 import docker.errors
 from requests.exceptions import ConnectionError
 from urllib3.exceptions import MaxRetryError
-from subprocess import CalledProcessError
+from subprocess import CalledProcessError, check_output
 from netaddr import IPAddress, IPNetwork
 from calico_ctl import endpoint
 from pycalico import netns
@@ -83,6 +84,9 @@ def container(arguments):
                 workload_id = info["Id"]
                 orchestrator_id = DOCKER_ORCHESTRATOR_ID
 
+        if arguments.get("veth"):
+            container_add_veth(arguments.get("<CONTAINER>"),
+                               arguments.get("<VETH>"))
         if arguments.get("ip"):
             if arguments.get("add"):
                 container_ip_add(arguments.get("<CONTAINER>"),
@@ -97,7 +101,7 @@ def container(arguments):
                     container_add(arguments.get("<CONTAINER>"),
                                   arguments.get("<IP>"),
                                   arguments.get("--interface"))
-                if arguments.get("remove"):
+                elif arguments.get("remove"):
                     container_remove(arguments.get("<CONTAINER>"))
         elif arguments.get("endpoint"):
             endpoint.endpoint_show(hostname,
@@ -129,7 +133,7 @@ def container(arguments):
                 container_add(arguments.get("<CONTAINER>"),
                               arguments.get("<IP>"),
                               arguments.get("--interface"))
-            if arguments.get("remove"):
+            elif arguments.get("remove"):
                 container_remove(arguments.get("<CONTAINER>"))
     except ConnectionError as e:
         # We hit a "Permission denied error (13) if the docker daemon
@@ -246,6 +250,78 @@ def container_add(container_id, ip, interface):
     # Let the caller know what endpoint was created.
     return ep
 
+
+def container_add_veth(container_id, veth):
+    """
+    Add container with veth to etcd.
+    :param container_id: The namespace path or the docker name/ID of the container.
+    :param veth: The Docker virtual interface for the container on the host side.
+    """
+    enforce_root()
+
+    if container_id.startswith("/") and os.path.exists(container_id):
+        # The ID is a path. Don't do any docker lookups
+        workload_id = escape_etcd(container_id)
+        orchestrator_id = NAMESPACE_ORCHESTRATOR_ID
+        namespace = netns.Namespace(container_id)
+    else:
+        info = get_container_info_or_exit(container_id)
+        workload_id = info["Id"]
+        orchestrator_id = DOCKER_ORCHESTRATOR_ID
+        namespace = netns.PidNamespace(info["State"]["Pid"])
+
+        # Check the container is actually running.
+        if not info["State"]["Running"]:
+            print "%s is not currently running." % container_id
+            sys.exit(1)
+
+        # We can't set up Calico if the container shares the host namespace.
+        if info["HostConfig"]["NetworkMode"] == "host":
+            print "Can't add %s to Calico because it is " \
+                  "running NetworkMode = host." % container_id
+            sys.exit(1)
+
+    # Check if the container already exists
+    try:
+        _ = client.get_endpoint(hostname=hostname,
+                                orchestrator_id=orchestrator_id,
+                                workload_id=workload_id)
+    except KeyError:
+        # Calico doesn't know about this container.  Continue.
+        pass
+
+    # Get IP on container
+    print "Getting IP"
+    ip = check_output(["docker", "inspect", "-f",
+                       "\"{{ .NetworkSettings.IPAddress }}\"", workload_id])
+    ip = ip.split("\"")[1]
+    print "IP is %s" % ip
+    ip = IPAddress(ip)
+
+    network = IPNetwork(IPAddress(ip))
+    ep = Endpoint(hostname=hostname,
+                  orchestrator_id=DOCKER_ORCHESTRATOR_ID,
+                  workload_id=workload_id,
+                  endpoint_id=uuid.uuid1().hex,
+                  state="active",
+                  mac=None)
+
+    ep.ipv4_nets.add(network)
+
+    # Get mac of container IF
+    ep.mac = netns.get_ns_veth_mac(namespace, interface)
+
+    # Register the endpoint with Felix.
+    print "Not setting endpoint yet, just testing"
+    client.set_endpoint(ep)
+
+    # END - ADDED FROM CONTAINER_ADD
+
+    container_if = "eth0"
+    ep.mac = netns.get_ns_veth_mac(namespace, container_if)
+    print "mac is %s" % ep.mac
+
+    return ep
 
 def container_remove(container_id):
     """
