@@ -299,27 +299,23 @@ def container_add_veth(container_id, veth):
     ip = IPAddress(ip)
 
     network = IPNetwork(IPAddress(ip))
+    container_if = "eth0"
+    mac = netns.get_ns_veth_mac(namespace, container_if)
+    print "mac is %s" % mac
+
     ep = Endpoint(hostname=hostname,
                   orchestrator_id=DOCKER_ORCHESTRATOR_ID,
                   workload_id=workload_id,
                   endpoint_id=uuid.uuid1().hex,
                   state="active",
-                  mac=None)
+                  mac=mac)
 
+    ep.name = veth
     ep.ipv4_nets.add(network)
 
-    # Get mac of container IF
-    ep.mac = netns.get_ns_veth_mac(namespace, interface)
-
     # Register the endpoint with Felix.
-    print "Not setting endpoint yet, just testing"
+    print "Setting endpoint"
     client.set_endpoint(ep)
-
-    # END - ADDED FROM CONTAINER_ADD
-
-    container_if = "eth0"
-    ep.mac = netns.get_ns_veth_mac(namespace, container_if)
-    print "mac is %s" % ep.mac
 
     return ep
 
