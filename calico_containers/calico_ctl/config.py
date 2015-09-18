@@ -53,7 +53,9 @@ from utils import hostname
 # Dictionaries providing look up between the configuration name, and a tuple
 # of (internal name, value regex string)
 FELIX_CONFIG_DATA = {
-    "loglevel": ("LogSeverityScreen", "none|debug|info|warning|error|critical")
+    "loglevel": ("LogSeverityScreen", "none|debug|info|warning|error|critical"),
+    # TODO: Make this regex more specific
+    "mtu": ("IpInIpMtu", "\d{3,4}")
 }
 BGP_CONFIG_DATA = {
     "loglevel": ("loglevel", "none|debug|info")

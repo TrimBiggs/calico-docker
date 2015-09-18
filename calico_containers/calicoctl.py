@@ -100,8 +100,9 @@ if __name__ == '__main__':
         # Call the dispatch function in that module which should also have
         # the same name
         getattr(command_module, command)(arguments)
-    except AttributeError:
+    except AttributeError as e:
         # Unrecognized submodule. Show main help message
+        print e
         docopt(__doc__, options_first=True, argv=['--help'])
         sys.exit(1)
     except SystemExit:

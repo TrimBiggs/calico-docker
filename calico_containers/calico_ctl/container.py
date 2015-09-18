@@ -22,6 +22,7 @@ import docker.errors
 from requests.exceptions import ConnectionError
 from urllib3.exceptions import MaxRetryError
 from subprocess import CalledProcessError
+from subprocess32 import check_call
 from netaddr import IPAddress, IPNetwork
 from calico_ctl import endpoint
 from pycalico import netns
@@ -232,8 +233,28 @@ def container_add(container_id, ip, interface):
 
     # Create the veth, move into the container namespace, add the IP and
     # set up the default routes.
-    netns.create_veth(ep.name, ep.temp_interface_name)
+    #netns.create_veth(ep.name, ep.temp_interface_name)
+    IP_CMD_TIMEOUT = 5
+    try:
+        print "------------------------"
+        check_call(['ip', 'link',
+                'add', ep.name,
+                'type', 'veth',
+                'peer', 'name', ep.temp_interface_name,
+                'mtu', '9001'],
+                   timeout=IP_CMD_TIMEOUT)
+        print "+++++++++++++++++++++++++++"
+    # Set the host end of the veth to 'up' so felix notices it.
+        check_call(['ip', 'link', 'set', ep.name, 'up'],
+                   timeout=IP_CMD_TIMEOUT)
+        check_call(['ip', 'link', 'set', ep.name, 'mtu', '9001'],
+                   timeout=IP_CMD_TIMEOUT)
+    except Exception as e:
+        print e
     netns.move_veth_into_ns(namespace, ep.temp_interface_name, interface)
+    #print "Endpoint name: %s" % ep.name
+    #print "Endpoint temp interface name: %s" % ep.temp_interface_name
+    #print "interface is: %s" % interface
     netns.add_ip_to_ns_veth(namespace, ip, interface)
     netns.add_ns_default_route(namespace, next_hop, interface)
 
