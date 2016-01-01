@@ -26,7 +26,7 @@ Log into your account:
 gcloud auth login
 ```
 
-In the GCE web console, create a project and enable the Compute Engine API.  
+In the GCE web console, create a pr<oject and enable the Compute Engine API.  
 Set the project as the default for gcloud:
 ```
 gcloud config set project PROJECT_ID
