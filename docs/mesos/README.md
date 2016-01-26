@@ -13,7 +13,8 @@ Questions? Contact us on the #Mesos channel of [Calico's Slack](https://calicous
 
 ### Mesos Version Compatability
 Calico support is actively being developed. Use the following information to ensure you choose the right version:
-- **Mesos 0.26:** Recommended. Full Calico Support for the future.
+- **Mesos 0.27:** Recommended. Supports launching Docker Images
+- **Mesos 0.26:** Supported.
 - **Mesos 0.25:** Deprecated. Calico works with Mesos 0.25, but we recommend against using it as there aren't any Frameworks (including Marathon) which support the Networkinfo specs from 0.25 (which were modified for 0.26)
 - **Mesos 0.24:** Unsupported. Calico works as a proof of concept, but is no longer supported.
 
@@ -32,26 +33,22 @@ In general, adding Calico to your Mesos Cluster doesn't require any
 modifications to the Mesos Master. However, in this guide, we use the 
 Master to run dockerized versions of etcd, ZooKeeper, and Marathon.
 
-Follow the [Mesos Master and Cluster Preparation Guide]
-(MesosClusterPreparation.md) for information on configuring these 
-services to run on your Mesos Master.
+Follow the [Mesos Master and Cluster Preparation Guide](MesosClusterPreparation.md) for information on configuring these services to run on your Mesos Master.
 
 ## 2. Install Mesos Slave, Netmodules, and Calico
-Choose one of the following guides to install Mesos with Calico:
+There are several options available for installing Calico in your datacenter. Choose whichever matches your needs:
 
-### a.) RPM
-The [Calico-Mesos RPM Installation Guide](RpmInstallCalicoMesos.md) serves as the fastest way to get up and running, by installing Mesos, Netmodules, and Calico onto your system.
+### a.) Demo: Dockerized Deployment (Automated)
+See what a running Mesos cluster with Calico looks like with just a `vagrant up` by following the  [Vagrant Dockerized Mesos Guide]. This guide serves as a quick demo, but is not recommended for production use as it creates a Mesos Master and Agent on the same hypervisor.
 
-### b.) Manual
+#### b.) Dockerized Deployment (Manual)
+For a better understanding of the components in a Mesos cluster with Calico, and the ability to easily customize them to suit your needs, follow the [Dockerized Mesos Guide](DockerizedDeployment.md). This deployment is similar to the Vagrant Dockerized demo, but allows for more customization in how its deployed, and deploys across multiple hosts to simulate a full Mesos Cluster in your data center. Additionally, the dockerized deploiyments allow for quick and easy upgrades to Mesos, Netmodules, and Calico.
+
+#### c.) RPM
+If running Mesos in docker doesn't suit your needs, the [Calico-Mesos RPM Installation Guide](RpmInstallCalicoMesos.md) serves as the next fastest way to get up and running, by installing Mesos, Netmodules, and Calico directly onto your system. 
+
+#### d.) Install: Manual
 For an in-depth walkthrough of the full installation procedure performed by the RPMs, see the [Calico-Mesos Manual Install Guide](ManualInstallCalicoMesos.md).
-
-### c.) Dockerized Deployment (Automated)
-For those of you that don't want to install mesos onto your hosts, 
-we've dockerized the services and already included Calico in them. 
-Check out the [Vagrant Dockerized Mesos Guide] for info on how to get up and running, fast.
-
-### d.) Dockerized Deployment (Manual)
-To run the dockerized mesos cluster by hand, check out the [Dockerized Mesos Guide](DockerizedDeployment.md).
 
 ## 3. Launching Tasks
 Calico is compatible with all frameworks which use the new NetworkInfo protobuf when launching tasks. Marathon has introduced limited support for this. For an early peek at using this , use `mesosphere/marathon:v0.14.0`.
