@@ -32,7 +32,7 @@ dummy tasks across the cluster:
 Client, Backend, and Frontend will each be run as a star-probe, which will attempt
 to communicate with each other probe, and report their status on a self-hosted webserver.
 
-Management-UI runs star-collect, which collects the status from each of the 
+Management-UI runs star-collect, which collects the status from each of the
 probes, and generates a viewable web page which illustrates the current state of the network.
 
 ## Getting Started
@@ -49,9 +49,9 @@ On one of your agents, download this repository. You will run the rest of this g
 
 
 ### 1. Create a Docker network
-With Calico, a Docker network represents a logical set of rules that define the 
+With Calico, a Docker network represents a logical set of rules that define the
 allowed traffic in and out of containers assigned to that network.  The rules
-are encapsulated in a Calico "profile".  Each Docker network is assigned its 
+are encapsulated in a Calico "profile".  Each Docker network is assigned its
 own Calico profile.
 
 For this demo, we will create a network for each service, stso that we can specify a unique set of rules for each. Run the following commands on any agent to create the networks:
@@ -78,7 +78,7 @@ Check that our networks were created by running the following command on any age
 	ff613162c710        frontend            calico
 
 ### 2. Launch the demo
-With your networks created, it is trivial to launch a Docker container 
+With your networks created, it is trivial to launch a Docker container
 through Mesos using the standard Marathon UI and API.
 
 #### Using Marathon's REST API to Launch Calico Tasks
@@ -124,7 +124,7 @@ curl -X PUT -H "Content-Type: application/json" http://$MARATHON_IP:8080/v2/grou
 This method of using calico-libnetwork to launch docker containers is
 accessible through the standard Marathon UI.
 When launching a task, select an arbitrary(*) network
-(Bridge or Host), and then provide the following additional parameter 
+(Bridge or Host), and then provide the following additional parameter
 (under the Docker options)
 
 ```
@@ -140,8 +140,8 @@ Where `<network name>` is the name of the network, for example "databases".
 ### 3. Add route to Calico IP's
 Before viewing the Marathon UI, you will need to ensure that you can reach the Marathon IP. It is likely that the device you
 are using to view the Marathon UI is connecting through a router which is not
-peering with the calico routers, and therefore does not know how to route 
-to the calico-assigned IPs. There are several solutions to this, 
+peering with the calico routers, and therefore does not know how to route
+to the calico-assigned IPs. There are several solutions to this,
 (and for information on them, [contact us on slack!][slack]),
 but for now, we'll follow the one outlined in [Exposing Container Port to Internet](https://github.com/projectcalico/calico-containers/blob/master/docs/ExposePortsToInternet.md#expose-container-port-to-host-interface--internet).
 
@@ -169,9 +169,9 @@ to display the rules in the profile associated with the `management-ui` network:
 As you can see, the default rules allow all outbound traffic, but only accept inbound
 traffic from endpoints also attached to the "management-ui" network.
 
-Our dev box is trying to view the Management-UI from an IP that isn't attached to any 
+Our dev box is trying to view the Management-UI from an IP that isn't attached to any
 known endpoints. Therefore, calico is blocking the connection.
-Lets re-configure the management to allow connections from anywhere, so we can access it 
+Lets re-configure the management to allow connections from anywhere, so we can access it
 on port 80 from our dev box:
 
 ```
@@ -183,12 +183,12 @@ calicoctl profile management-ui rule add inbound allow tcp to ports 9001
 >Replace `<ETCD_AUTHORITY>` with the correct `ip:port` value. For example, if you installed
 >your cluster using vagrant, your `ETCD_AUTHORITY` will be `172.24.197.101:2379`.
 
-Changes to calico profiles are distributed immediately across the network. 
-So we should immediately be able to view the UI: 
+Changes to calico profiles are distributed immediately across the network.
+So we should immediately be able to view the UI:
 - http://192.168.255.254:9000
 
 Hmm, so the web page is viewable, but its blank! Well, its grey. But where is the pretty
-diagram? Another look at the profile and we realize that the managemtn-UI is not 
+diagram? Another look at the profile and we realize that the managemtn-UI is not
 allowed to communicate with each probe to find out their statuses! We'll need
 to add a rule to each network to allow this connection through:
 
@@ -211,7 +211,7 @@ Hooray! The probes are viewable. Now its time to configure sensible routes betwe
 
 	calicoctl profile backend rule add inbound allow tcp from tag frontend to port 9001
 
-    
+
 Lets see what our cluster looks like now:
 - http://192.168.255.254:9000
 
