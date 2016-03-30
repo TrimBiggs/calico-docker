@@ -5,13 +5,13 @@
       "id": "management-ui",
       "uris": ["https://raw.githubusercontent.com/TrimBiggs/calico-containers/mesos-docs-rework/docs/mesos/stars-demo/calico-stars-resources.json"],
       "cmd": "/star/target/debug/star-collect --resources-file=$MESOS_SANDBOX/calico-stars-resources.json",
-      "cpus": 0.2,
       "mem": 64.0,
       "container": {
         "type": "DOCKER",
         "docker": {
           "image": "djosborne/star:v0.5.0",
           "portMappings":[{"containerPort": 9001, "servicePort": 10000}],
+          "network": "BRIDGE",
           "parameters": [
             { "key": "net", "value": "management-ui" },
             { "key": "ip", "value": "192.168.255.254" }
@@ -20,7 +20,7 @@
       },
       "labels":{
         "HAPROXY_GROUP":"external",
-        "HAPROXY_IP_PER_CONTAINER": "true"
+        "HAPROXY_0_IP_PER_CONTAINER": "true"
       }
     },
     {
