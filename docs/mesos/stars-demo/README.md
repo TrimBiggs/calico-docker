@@ -7,24 +7,41 @@
 <!--- end of master only -->
 
 # Stars demo with the Mesos Docker Containerizer
-The included demo uses the stars visualizer to set up a frontend and backend service, as well as a client service, all running on mesos. It then configures network policy on each service.
+The included demo uses the stars visualizer to set up a frontend and backend service, as well as a client service, all running on Mesos. It then configures network policy on each service.
+
+The goal of this demo is to provide a meaningful visualization of how Calico
+manages security between services in a Mesos cluster.
 
 ## Prerequisites
-This demo requires a Mesos cluster with Calico-libnetwork running. Click on the
-following items for information on how to set them up:
-- [etcd cluster](#etcd-guide)
-- [mesos master](#mesos-master)
-- mesos slave
-    - [docker 1.9+ configured to use your etcd cluster as its datastore](#docker-multi-network)
+This demo requires a Mesos cluster with Calico-libnetwork running,
+along with a few additional components. To quickly launch a ready
+cluster, follow the [Vagrant Mesos Guide](./Vagrant.md).
+
+Your cluster should contain the following components.
+
+
+TODO: Add proper documentation for each relevent item.
+
+- Mesos Master Instance
+- One or more Mesos Agent Instance(s) with:
+    - [docker 1.9+ configured to use the Etcd cluster as its datastore](#docker-multi-network)
     - [calicoctl binary installed](#install-calicoctl)
     - [calico node & libnetwork](#calico-node)
-    
-To quickly launch a ready cluster, see the [vagrant mesos guide](#calico-mesos)
+
+You'll also need the following services running somewhere in your cluster
+(such as on the Mesos Master):
+
+TODO: Add proper documentation for each relevent item.
+
+- Etcd
+- Marathon
+- Marathon Load Balancer
+
 
 ## Overview
-This demo uses stars, a network connectivity visualizer. We will launch the following four
+This demo uses Stars, a network connectivity visualizer. We will launch the following four
 dummy tasks across the cluster:
-- Backend 
+- Backend
 - Frontend
 - Client
 - Management-UI
@@ -33,20 +50,35 @@ Client, Backend, and Frontend will each be run as a star-probe, which will attem
 to communicate with each other probe, and report their status on a self-hosted webserver.
 
 Management-UI runs star-collect, which collects the status from each of the
-probes, and generates a viewable web page which illustrates the current state of the network.
+probes and generates a viewable web page illustrating the current state of
+the network.  We will use the Marathon load balancer to access the Stars UI
+using port mapping from the host to the Management UI container.
+
+The configuration described in this demo utilizes the following setup:
+
+```
+Mesos Master
+ - IP: 172.24.197.101`
+ - Etcd: `ETCD_AUTHORITY=172.24.197.101:2379`
+ - Marathon: `172.24.197.101:8080`
+ - Marathon Load Balancer container
+ - `calico/node`, `calico/node-libnetwork`
+Mesos Agents (2)
+ - IPs: `172.24.197.102`, `172.24.197.103`
+```
+
+These components are all configured with the [Vagrant Mesos install](./Vagrant.md).
+If you are not running your cluster from the Vagrant install, be sure to use
+your own IP addresses and ports when you see these values mentioned in the guide.
 
 ## Getting Started
 ### Prep: 
-On each agent, pull docker image `djosborne/star:v0.5.0` for a faster marathon launch later.
+On each agent, pull the Docker image `djosborne/star:v0.5.0` to speed up the
+Marathon install once the tasks start.
 
 	docker pull djosborne/star:v0.5.0
 
-On one of your agents, download this repository. You will run the rest of this guide from this agent.
-
-	curl -O -L https://github.com/djosborne/calico-containers/archive/mesos-docker-stars.tar.gz
-	tar -xvf mesos-docker-stars.tar.gz
-	cd calico-containers-mesos-docker-stars/
-
+On one of your agents, download the [stars.json](./stars.json) from this directory.
 
 ### 1. Create a Docker network
 With Calico, a Docker network represents a logical set of rules that define the
@@ -54,7 +86,7 @@ allowed traffic in and out of containers assigned to that network.  The rules
 are encapsulated in a Calico "profile".  Each Docker network is assigned its
 own Calico profile.
 
-For this demo, we will create a network for each service, stso that we can specify a unique set of rules for each. Run the following commands on any agent to create the networks:
+For this demo, we will create a network for each service so that we can specify a unique set of rules for each. Run the following commands on any agent to create the networks:
 
 ```
 docker network create --driver calico --ipam-driver calico --subnet=192.168.0.0/16 management-ui
@@ -62,7 +94,9 @@ docker network create --driver calico --ipam-driver calico client
 docker network create --driver calico --ipam-driver calico frontend
 docker network create --driver calico --ipam-driver calico backend
 ```
-TODO: Note on the subnet
+
+>The subnet is passed in here to ensure that the IP address of the `management-ui`
+>
 
 Check that our networks were created by running the following command on any agent:
 
@@ -82,83 +116,86 @@ With your networks created, it is trivial to launch a Docker container
 through Mesos using the standard Marathon UI and API.
 
 #### Using Marathon's REST API to Launch Calico Tasks
-To launch a container using the Marathon API with a JSON blob, simply include
-the net parameter in the request.  Here's a sample blob of what our collector looks like.
+You can launch a new task by passing a JSON blob to the Marathon REST API.
+
+##### Example JSON
+Here's a sample blob of what the Management UI task looks like as JSON.
 
 ```
 {
-    "id":"/calico-apps",
-    "apps": [
-        {
-          "id": "client",
-          "cmd": "star-probe --urls=http://frontend.calico-stars.marathon.mesos:9000/status,http://backend.calico-stars.marathon.mesos:9000/status",
-          "cpus": 0.1,
-          "mem": 64.0,
-          "container": {
-            "type": "DOCKER",
-            "docker": {
-              "image": "mesosphere/star:v0.3.0",
-              "parameters": [
-                { "key": "net", "value": "client" }
-              ]
-            }
+  "id":"/calico-apps",
+  "apps": [
+      {
+        "id": "management-ui",
+        "cmd": "star-probe --urls=http://frontend.calico-stars.marathon.mesos:9000/status,http://backend.calico-stars.marathon.mesos:9000/status",        
+        "cpus": 0.1,
+        "mem": 64.0,
+        "container": {
+          "type": "DOCKER"
+          "docker": {
+            "portMappings":[{"containerPort": 9001, "servicePort": 10000}],
+            "image": "mesosphere/star:v0.3.0",
+            "parameters": [
+              { "key": "net", "management-ui" },
+              { "key": "ip", "value": "192.168.255.254" }
+            ]
           }
         }
-    ]
+      }
+  ]
 }
 ```
 
-Note the `parameters` field which specifies which docker network to join, as well as
-the static IP address request.
+Note the `parameters` field which specifies:
 
-To speed things up, we'll use the prefilled [stars.json](./stars.json) file. Launch it on mesos by curling it to Marathon. Be sure to set your Marathon IP as appropriate:
+- The Docker network to join
+- A specific IP address from the Calico Pool to set as the Management UI IP
 
-```
-export MARATHON_IP=172.24.197.101
-curl -X PUT -H "Content-Type: application/json" http://$MARATHON_IP:8080/v2/groups/calico-stars  -d @docs/mesos/stars-demo/stars.json
-```
+Also note the `portMappings` field, which maps the Management UI's port 9001 to
+the port 10000 of the host containing the Marathon load balancer.  For this
+demo, this means that `http://172.24.197.101:100000` maps to `http://192.168.255.254:9001`.
 
-> Note: The tasks may be "Deploying" for awhile as the star docker image is pulled.
+##### Start a Task
+To speed things up, we'll use the prefilled [stars.json](./stars.json) file
+that you downloaded earlier on your agent. This file contains four tasks to
+create containers for the management-ui, client, frontend, and backend services.
 
-#### [Alternative] Launching a container through the UI
-This method of using calico-libnetwork to launch docker containers is
-accessible through the standard Marathon UI.
-When launching a task, select an arbitrary(*) network
-(Bridge or Host), and then provide the following additional parameter
-(under the Docker options)
+First you'll need to set the `MARATHON_IP` to be the IP address of the machine that is running Marathon:
 
-```
-Key = net
-Value = <network name>
-```
+	export MARATHON_IP=172.24.197.101
 
-Where `<network name>` is the name of the network, for example "databases".
+Then, using the Mesos agent that contains the `stars.json` file,
+launch a new Marathon task with the following curl command
+(make sure that you are using the correct path to the `stars.json` file):
 
-> (*) The selection is arbitrary because the additional net parameter overrides
-> the selected network type.
+	curl -X PUT -H "Content-Type: application/json" http://$MARATHON_IP:8080/v2/groups/calico-stars  -d @stars.json
 
-### 3. Add route to Calico IP's
-Before viewing the Marathon UI, you will need to ensure that you can reach the Marathon IP. It is likely that the device you
-are using to view the Marathon UI is connecting through a router which is not
-peering with the calico routers, and therefore does not know how to route
-to the calico-assigned IPs. There are several solutions to this,
-(and for information on them, [contact us on slack!][slack]),
-but for now, we'll follow the one outlined in [Exposing Container Port to Internet](https://github.com/projectcalico/calico-containers/blob/master/docs/ExposePortsToInternet.md#expose-container-port-to-host-interface--internet).
+You can view the Marathon dashboard by visiting `http://<MARATHON_IP>:8080` in your browser.
 
-```
-iptables -A PREROUTING -t nat -i eth1 -p tcp --dport 9001 -j DNAT  --to 192.168.255.254:9001
-iptables -t nat -A OUTPUT -p tcp -o lo --dport 9001 -j DNAT --to-destination 192.168.255.254:9001
-```
+### 3. View the Management UI
+Now that we have configured our Marathon tasks, let's view the Stars UI.
 
-### 4. View the UI
-Now that we can route to our task, let's view the UI. Our UI was passed a label to specially
-request the address `172.24.197.101:9001` for the collector UI. Let's visit that IP (this will fail!):
+#### Access Webpage
+As mentioned above, the `stars.json` file passes a `parameter` to specially
+request the address `192.168.255.254` as the IP address of the Stars
+Management UI container.  Since we also map port 9001 of the UI to port 10000
+of the Mesos Master running the Marathon load balancer, you can access the UI
+from the Mesos Master.
 
-- http://172.24.197.101:9001
+Before we configure Calico policy for the UI, let's ***try*** to access
+the webpage on Master from a machine that can reach the Master IP:
 
-Oh no! Our connection is refused, and We can't see the UI. Let's use the `calicoctl profile <profile> rule show` 
-to display the rules in the profile associated with the `management-ui` network:
+	http://172.24.197.101:10000
 
+Our connection is refused since the default behavior of a Calico profile
+is to allow inbound traffic from nodes with the same profile only
+(or from nodes in the same network in this case).
+
+#### Update `management-ui` Network Rules
+Let's view the rules for the `management-ui` network by running the
+`calicoctl profile <profile> rule show` command:
+
+	$ export ETCD_AUTHORITY=172.24.197.101:2379
 	$ calicoctl profile management-ui rule show
 
 	Inbound rules:
@@ -166,31 +203,32 @@ to display the rules in the profile associated with the `management-ui` network:
 	Outbound rules:
 	   1 allow
 
-As you can see, the default rules allow all outbound traffic, but only accept inbound
-traffic from endpoints also attached to the "management-ui" network.
+>Replace `ETCD_AUTHORITY` with the correct `ip:port` if different.
 
-Our dev box is trying to view the Management-UI from an IP that isn't attached to any
-known endpoints. Therefore, calico is blocking the connection.
-Lets re-configure the management to allow connections from anywhere, so we can access it
-on port 80 from our dev box:
+As you can see, the default rules allow all outbound traffic, but only accept inbound
+traffic from endpoints also attached to the `management-ui` network.
+
+Lets re-configure the profile to allow connections to port 9001 from anywhere,
+so we can access it in the browser:
 
 ```
-export ETCD_AUTHORITY=<ETCD_AUTHORITY>
 calicoctl profile management-ui rule remove inbound allow from tag management-ui
 calicoctl profile management-ui rule add inbound allow tcp to ports 9001
 ```
 
->Replace `<ETCD_AUTHORITY>` with the correct `ip:port` value. For example, if you installed
->your cluster using vagrant, your `ETCD_AUTHORITY` will be `172.24.197.101:2379`.
-
 Changes to calico profiles are distributed immediately across the network.
 So we should immediately be able to view the UI:
-- http://192.168.255.254:9000
 
-Hmm, so the web page is viewable, but its blank! Well, its grey. But where is the pretty
-diagram? Another look at the profile and we realize that the managemtn-UI is not
-allowed to communicate with each probe to find out their statuses! We'll need
-to add a rule to each network to allow this connection through:
+	http://172.24.197.101:10000
+
+Hmm, the web page is viewable, but there is no data or information about
+the cluster connections.  This is because the `management-ui` container 
+is not yet allowed to communicate with the client, frontend, or backend
+containers to collect their statuses!
+
+#### Update `client`, `frontend`, and `backend` Network Rules
+Let's add a rule to each network to allow the `management-ui` network to
+probe port 9000 of the three other networks:
 
 ```
 calicoctl profile client rule add inbound allow tcp from tag management-ui to ports 9000
@@ -198,28 +236,32 @@ calicoctl profile backend rule add inbound allow tcp from tag management-ui to p
 calicoctl profile frontend rule add inbound allow tcp from tag management-ui to ports 9000
 ```
 
-Lets try again:
-- http://192.168.255.254:9000
+Lets try the webpage again:
 
-Hooray! The probes are viewable. Now its time to configure sensible routes between the services in our cluster. Lets add some policies to make the following statements true:
+	http://172.24.197.101:10000
 
-- The frontend services should respond to requests from clients:
+Hooray! The nodes are viewable. Now its time to configure sensible routes between the services in our cluster. 
 
-    calicoctl profile frontend rule add inbound allow tcp from tag client to port 9001
+#### Configure Additional Policy
+Lets add some policies to make the following statements true:
 
-- The backend services should respond to requests from the frontend:
+**The frontend services should respond to requests from clients:**
 
-	calicoctl profile backend rule add inbound allow tcp from tag frontend to port 9001
+```
+calicoctl profile frontend rule add inbound allow tcp from tag client to port 9001
+```
 
+**The backend services should respond to requests from the frontend:**
+
+```
+calicoctl profile backend rule add inbound allow tcp from tag frontend to port 9001
+```
 
 Lets see what our cluster looks like now:
-- http://192.168.255.254:9000
 
-That's it!
+	http://172.24.197.101:10000
 
-```
-curl -X DELETE http://$MARATHON_IP:8080/v2/groups/calico-stars?force=true
-
-```
+You can now see how Calico has configured policy to allow access from
+certain networks to others in your cluster!
 
 [![Analytics](https://calico-ga-beacon.appspot.com/UA-52125893-3/calico-mesos-deployments/docs/CalicoWithTheDockerContainerizer.md?pixel)](https://github.com/igrigorik/ga-beacon)
