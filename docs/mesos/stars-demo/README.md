@@ -7,40 +7,35 @@
 <!--- end of master only -->
 
 # Stars demo with the Mesos Docker Containerizer
-The included demo uses the stars visualizer to set up a frontend and backend service, as well as a client service, all running on Mesos. It then configures network policy on each service.
+This demo uses the stars network visualizer to set up a frontend and backend service, as well as a client service and UI, all running on Mesos. It then configures network policy on each service.
 
 The goal of this demo is to provide a meaningful visualization of how Calico
 manages security between services in a Mesos cluster.
 
+For a deeper look at how to configure Calico with the Docker containerizer,
+check out [Calico's Docker Containerizer guide](../UsageGuideDockerContainerizer).
+
 ## Prerequisites
 This demo requires a Mesos cluster with Calico-libnetwork running,
-along with a few additional components. To quickly launch a ready
-cluster, follow the [Vagrant Mesos Guide](./Vagrant.md).
+along with a few additional components.
+
+To simplify the setup, we have created a Vagrant file to quickly
+deploy a master and two agents. Follow the [Vagrant Mesos Guide](./Vagrant.md)
+to get started.
 
 Your cluster should contain the following components.
 
-
-TODO: Add proper documentation for each relevent item.
-
-- Mesos Master Instance
-- One or more Mesos Agent Instance(s) with:
-    - [docker 1.9+ configured to use the Etcd cluster as its datastore](#docker-multi-network)
-    - [calicoctl binary installed](#install-calicoctl)
-    - [calico node & libnetwork](#calico-node)
-
-You'll also need the following services running somewhere in your cluster
-(such as on the Mesos Master):
-
-TODO: Add proper documentation for each relevent item.
-
-- Etcd
-- Marathon
-- Marathon Load Balancer
-
+- Mesos Master Instance - `172.24.197.101`
+	- Etcd - `172.24.197.101:2379`
+	- Marathon - `172.24.197.101:8080`
+	- Marathon Load Balancer (running in Docker container)
+- Two Mesos Agent Instances - `172.24.197.102`, `172.24.197.103`
+    - Calicoctl
+    - `calico/node` and `calico/node-libnetwork` running in Docker 1.9+
 
 ## Overview
 This demo uses Stars, a network connectivity visualizer. We will launch the following four
-dummy tasks across the cluster:
+dummy tasks across the cluster using the Docker containerizer:
 - Backend
 - Frontend
 - Client
@@ -53,23 +48,6 @@ Management-UI runs star-collect, which collects the status from each of the
 probes and generates a viewable web page illustrating the current state of
 the network.  We will use the Marathon load balancer to access the Stars UI
 using port mapping from the host to the Management UI container.
-
-The configuration described in this demo utilizes the following setup:
-
-```
-Mesos Master
- - IP: 172.24.197.101`
- - Etcd: `ETCD_AUTHORITY=172.24.197.101:2379`
- - Marathon: `172.24.197.101:8080`
- - Marathon Load Balancer container
- - `calico/node`, `calico/node-libnetwork`
-Mesos Agents (2)
- - IPs: `172.24.197.102`, `172.24.197.103`
-```
-
-These components are all configured with the [Vagrant Mesos install](./Vagrant.md).
-If you are not running your cluster from the Vagrant install, be sure to use
-your own IP addresses and ports when you see these values mentioned in the guide.
 
 ## Getting Started
 ### Prep: 
@@ -96,7 +74,7 @@ docker network create --driver calico --ipam-driver calico backend
 ```
 
 >The subnet is passed in here to ensure that the IP address of the `management-ui`
->
+>can be statically configured.
 
 Check that our networks were created by running the following command on any agent:
 
@@ -175,12 +153,11 @@ You can view the Marathon dashboard by visiting `http://<MARATHON_IP>:8080` in y
 ### 3. View the Management UI
 Now that we have configured our Marathon tasks, let's view the Stars UI.
 
-#### Access Webpage
-As mentioned above, the `stars.json` file passes a `parameter` to specially
-request the address `192.168.255.254` as the IP address of the Stars
-Management UI container.  Since we also map port 9001 of the UI to port 10000
-of the Mesos Master running the Marathon load balancer, you can access the UI
-from the Mesos Master.
+#### View the Stars UI from a Browser
+As mentioned above, the Stars Management UI container JSON passes a port mapping
+to the Marathon load balancer when creating the container.  Since the load balancer
+is running on Mesos Master, you can access the UI's port 9001 by visiting port
+10000 on the Master.
 
 Before we configure Calico policy for the UI, let's ***try*** to access
 the webpage on Master from a machine that can reach the Master IP:
@@ -188,11 +165,11 @@ the webpage on Master from a machine that can reach the Master IP:
 	http://172.24.197.101:10000
 
 Our connection is refused since the default behavior of a Calico profile
-is to allow inbound traffic from nodes with the same profile only
-(or from nodes in the same network in this case).
+is to only allow inbound traffic from nodes with the same profile
+(or from nodes in the same network, in this case).
 
-#### Update `management-ui` Network Rules
-Let's view the rules for the `management-ui` network by running the
+#### Allow Traffic to `management-ui` Network
+Let's view the rules for the `management-ui` network's profile by running the
 `calicoctl profile <profile> rule show` command:
 
 	$ export ETCD_AUTHORITY=172.24.197.101:2379
@@ -202,8 +179,6 @@ Let's view the rules for the `management-ui` network by running the
 	   1 allow from tag management-ui
 	Outbound rules:
 	   1 allow
-
->Replace `ETCD_AUTHORITY` with the correct `ip:port` if different.
 
 As you can see, the default rules allow all outbound traffic, but only accept inbound
 traffic from endpoints also attached to the `management-ui` network.
@@ -216,17 +191,11 @@ calicoctl profile management-ui rule remove inbound allow from tag management-ui
 calicoctl profile management-ui rule add inbound allow tcp to ports 9001
 ```
 
-Changes to calico profiles are distributed immediately across the network.
-So we should immediately be able to view the UI:
+At this point, the web page is viewable, but there is no data or information about
+the cluster connections.  This is because the client, frontend, and backend
+networks are also blocking incoming traffic!
 
-	http://172.24.197.101:10000
-
-Hmm, the web page is viewable, but there is no data or information about
-the cluster connections.  This is because the `management-ui` container 
-is not yet allowed to communicate with the client, frontend, or backend
-containers to collect their statuses!
-
-#### Update `client`, `frontend`, and `backend` Network Rules
+#### Allow Traffic to `client`, `frontend`, and `backend` Networks
 Let's add a rule to each network to allow the `management-ui` network to
 probe port 9000 of the three other networks:
 
@@ -240,28 +209,25 @@ Lets try the webpage again:
 
 	http://172.24.197.101:10000
 
-Hooray! The nodes are viewable. Now its time to configure sensible routes between the services in our cluster. 
+The nodes are viewable! Now its time to configure sensible network policy
+between the services in our cluster.
 
 #### Configure Additional Policy
 Lets add some policies to make the following statements true:
 
 **The frontend services should respond to requests from clients:**
 
-```
-calicoctl profile frontend rule add inbound allow tcp from tag client to port 9001
-```
+	calicoctl profile frontend rule add inbound allow tcp from tag client to port 9001
 
 **The backend services should respond to requests from the frontend:**
 
-```
-calicoctl profile backend rule add inbound allow tcp from tag frontend to port 9001
-```
+	calicoctl profile backend rule add inbound allow tcp from tag frontend to port 9001
 
 Lets see what our cluster looks like now:
 
 	http://172.24.197.101:10000
 
-You can now see how Calico has configured policy to allow access from
-certain networks to others in your cluster!
+Hooray! You've configured policy with Calico to allow certain networks to access
+other networks in your cluster!
 
 [![Analytics](https://calico-ga-beacon.appspot.com/UA-52125893-3/calico-mesos-deployments/docs/CalicoWithTheDockerContainerizer.md?pixel)](https://github.com/igrigorik/ga-beacon)

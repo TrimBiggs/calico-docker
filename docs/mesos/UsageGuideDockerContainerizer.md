@@ -16,42 +16,54 @@ containerizer.  This guide covers:
 -  Creating a Docker network and managing network policy
 -  Launching a container
 
-## Set up Docker multi-host networking
+## Prerequisites
 
 To utilize the Docker libnetwork plugin feature of Docker, it is necessary to 
 run with a Docker version 1.9 or higher, and to configure Docker to use a
-cluster store.  We'll set up an etcd datastore which will be used by Docker and
-Calico.
+cluster store.  
 
-#### Install etcd
+You can easily configure a mesos cluster by running through
+the [Calico Mesos Vagrant guide](./Vagrant.md). If you do this, you can skip
+directly to [Launching Containers](#launching-containers).
 
-Set up an etcd cluster.  For initial testing we’d recommend starting with a
-single-node cluster on one of your master nodes.
+TODO: Check above link works
 
-For simplicity there is a Docker image you can use to spin up a single etcd
-instance.  On the selected server, run the following
+#### Required Machines 
 
-```
-IP=<IP Address>
-sudo docker pull quay.io/coreos/etcd:v2.2.0
-sudo mkdir -p /var/etcd
-sudo docker run --detach --name etcd --net host -v /var/etcd:/data quay.io/coreos/etcd:v2.2.0 \
-     --advertise-client-urls "http://${IP}:2379,http://${IP}:4001" \
-     --listen-client-urls "http://0.0.0.0:2379,http://0.0.0.0:4001" \
-     --data-dir /data
-```
+The cluster must contain the following machines:
 
-replacing `<IP Address>` with the server IP address.
+- Mesos Master
+- Mesos Agent(s)
+	- Docker 1.9+ (see below)
+
+#### Required Services
+
+You will also need to run the following services:
+
+TODO: Fix these links
+
+- [Marthon](./)
+- [Etcd](./)
+
+It is easiest to just run these services on the Mesos Master machine.
+Each machine in the cluster must have access to these services.
 
 #### Set up Docker daemon to use etcd as a cluster store
 
-On each agent:
--  Stop your docker service.
+In order to run the Docker Containerizer, you will need to do the following
+on each agent:
+
+-  Stop your Docker service
+	-  e.g. `systemctl stop docker` or `stop docker`
 -  If you don’t already have at least Docker 1.9 then upgrade/install Docker
    1.9 or higher.
--  Modify the docker daemon parameters to include:
-   `--cluster-store=etcd://<ip address>:4001`
+-  Modify the docker daemon parameters to point at the etcd cluster, such as:
+	- Modify the Default Docker parameters file to include
+	  `DOCKER_OPTS="--cluster-store=etcd://<IP address>:4001"`
+    - Run docker daemon with `--cluster-store=etcd://<IP address>:4001`
 -  Start your docker service.
+
+Be sure replace `<IP address>` with IP address of your etcd cluster.
 
 ## Install and set up Calico
 
@@ -65,52 +77,7 @@ chmod a+x calicoctl
 sudo ETCD_AUTHORITY=<IP Address>:4001 ./calicoctl node --libnetwork
 ```
 
-substituting `<IP Address>` with the IP address of your etcd server.  
-
-> Note: The ETCD_AUTHORITY environment variable needs to be set when running
-> any calicoctl commands.  We recommend setting the environment variable in 
-> your login scripts (or similar), and placing the calicoctl binary in your
-> system path.  The remaining instructions assume you have done this.
-
-> Note: Docker and Calico allow you to control network policy for your entire 
-> cluster by issuing commands from anywhere in the cluster.  For example, if 
-> you want to manage network policy by issuing commands on a master node rather
-> than on an agent, you will also need to follow the above steps to "Set up 
-> Docker to use etcd as a cluster store" and "Install Calico on each Agent" on
-> that master node.
-
-#### Configure your IP pools
-
-By default, Calico creates an IP pool with CIDR 192.168.0.0/16.  The Calico 
-IPAM module will assign IP addresses to your containers from that range of IP 
-addresses.
-
-If you want to allocate from different CIDRs you can use the 
-`calicoctl pool remove` and `calicoctl pool add` commands to modify the 
-available pools.  For example, to change the pool from 192.168.0.0/16 to be 
-172.168.0.0/16 run the following to remove the original pool and create a new
-one: 
-
-```
-calicoctl pool remove 192.168.0.0/16
-calicoctl pool add 172.168.0.0/16
-```
-
-You can view the configured pools using the `calicoctl pool show` command.  e.g.
-
-```
-$ ./calicoctl pool show
-+----------------+---------+
-|   IPv4 CIDR    | Options |
-+----------------+---------+
-| 172.168.0.0/16 |         |
-+----------------+---------+
-+--------------------------+---------+
-|        IPv6 CIDR         | Options |
-+--------------------------+---------+
-| fd80:24e2:f998:72d6::/64 |         |
-+--------------------------+---------+
-```
+Be sure to set the ETCD_AUTHORITY to the correct `IP:Port` for your etcd cluster.
 
 ## Creating a Docker network and managing network policy
 
@@ -141,6 +108,7 @@ The network name can be supplied as the profile name and the `calicoctl` tool
 will look up the profile associated with that network.
 
 ```
+$ ETCD_AUTHORITY=<IP address>:4001
 $ calicoctl profile databases rule show
 Inbound rules:
    1 allow from tag databases
@@ -152,7 +120,7 @@ As you can see, the default rules allow all outbound traffic and accept inbound
 traffic only from containers attached the "databases" network.
 
 > Note that when managing profiles created by the Calico network driver, the
-> tag and network name can be regarded as the same thing.
+> profile tag and network name can be regarded as the same thing.
 
 #### Configuring the network policy
 
@@ -194,16 +162,16 @@ Outbound rules:
 For more details on the syntax of the rules, run `calicoctl profile --help` to
 display the valid profile commands.
 
-## Launching a container
+## Launching Containers
 
 With your networks configured, it is trivial to launch a Docker container 
 through Mesos using the standard Marathon UI and API.
 
 #### Launching a container through the UI
 
-Through the UI, launch a Docker task as normal.  Select an arbitrary(*) network
-(Bridge or Host), and then provide the following additional parameter 
-(under the Docker options)
+Through the Marathon UI at `MARATHON_IP:8080`, launch a Docker task as normal.
+Select an arbitrary(*) network (Bridge or Host), and then provide the
+following additional parameter (under the Docker options):
 
 ```
 Key = net
@@ -242,6 +210,44 @@ the net parameter in the request.  For example:
     ]
 }
 ```
+
+## Additional Options (Optional)
+
+
+#### Configure your IP pools
+
+By default, Calico creates an IP pool with CIDR 192.168.0.0/16.  The Calico 
+IPAM module will assign IP addresses to your containers from that range of IP 
+addresses.
+
+If you want to allocate from different CIDRs you can use the 
+`calicoctl pool remove` and `calicoctl pool add` commands to modify the 
+available pools.  For example, to change the pool from 192.168.0.0/16 to be 
+172.168.0.0/16 run the following to remove the original pool and create a new
+one: 
+
+```
+calicoctl pool remove 192.168.0.0/16
+calicoctl pool add 172.168.0.0/16
+```
+
+You can view the configured pools using the `calicoctl pool show` command.  e.g.
+
+```
+$ ./calicoctl pool show
++----------------+---------+
+|   IPv4 CIDR    | Options |
++----------------+---------+
+| 172.168.0.0/16 |         |
++----------------+---------+
++--------------------------+---------+
+|        IPv6 CIDR         | Options |
++--------------------------+---------+
+| fd80:24e2:f998:72d6::/64 |         |
++--------------------------+---------+
+```
+
+TODO: Include Load balancer information here.
 
 
 [![Analytics](https://calico-ga-beacon.appspot.com/UA-52125893-3/calico-mesos-deployments/docs/CalicoWithTheDockerContainerizer.md?pixel)](https://github.com/igrigorik/ga-beacon)
